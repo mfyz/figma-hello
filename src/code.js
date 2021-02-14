@@ -1,4 +1,3 @@
-import serialize from 'node-serialize'
 
 // figma.showUI(__html__);
 
@@ -78,9 +77,112 @@ api methods to create stuff
 // -----------------
 
 
-let styleGuidePage = figma.root.findOne((n) => { return (n.type === 'PAGE' && n.name === "Style Guide") })
-console.log('--> styleGuidePage', styleGuidePage)
-console.log('--> typeof styleGuidePage', typeof styleGuidePage)
+const pageMaxX = () => {
+	let maxX = 0
+	if (figma.currentPage.children) {
+		figma.currentPage.children.forEach((node) => {
+			if ((node.x + node.width) > maxX) {
+				maxX = (node.x + node.width)
+			}
+		})
+	}
+	return maxX
+}
+
+const createTextStylesTemplateFrame = () => {
+	const tFrame = figma.createFrame()
+	tFrame.name = 'Template - Text Styles'
+	// ...
+	// TODO: Create whole template format via code here...
+}
+
+const setTextStylePropertyValue = (propsNode, name, value, isDefault) => {
+	const propGroupNode = propsNode.findOne((n) => n.name === name)
+	if (propGroupNode) {
+		let shouldRemoveNode = true
+		const propValueNode = propGroupNode.findChild((n) => n.name === 'Value')
+		if (propValueNode && isDefault !== true) {
+			propValueNode.characters = '' + value
+			shouldRemoveNode = false
+		}
+		if (shouldRemoveNode) {
+			propGroupNode.remove()
+		}
+	}
+}
+
+const generateTextStylesFrame = (templateTextStylesFrame) => {
+	const textStylesRenderedFrameName = 'Text Styles'
+	let textStylesRenderedFrameX = 0
+
+	const existingTextStylesRenderedFrame = figma.currentPage.findOne((n) => { return (n.type === 'FRAME' && n.name === textStylesRenderedFrameName) })
+	if (existingTextStylesRenderedFrame) { // replace existing canvas
+		textStylesRenderedFrameX = existingTextStylesRenderedFrame.x
+		existingTextStylesRenderedFrame.remove()
+	}
+	else { // new frame in the canvas
+		textStylesRenderedFrameX = pageMaxX() + 100
+	}
+
+	const generatedTFrame = templateTextStylesFrame.clone()
+	generatedTFrame.name = textStylesRenderedFrameName
+	generatedTFrame.x = textStylesRenderedFrameX
+
+	const textStyleBlock = generatedTFrame.findOne((n) => { return (n.type === 'GROUP' && n.name === 'Text Style') })
+	// console.log('--> textStyleBlock', textStyleBlock)
+	
+	const textStyles = figma.getLocalTextStyles()
+	// let textStyle
+	const tsPromises = []
+	for(let i = 0; i < textStyles.length; i += 1) {
+		const textStyle = textStyles[i]
+		// console.log('---------------------')
+		// console.log(textStyle)
+		
+		tsPromises.push(new Promise((resolve, reject) => {
+			figma.loadFontAsync({
+				family: textStyle.fontName.family,
+				style: textStyle.fontName.style
+			})
+				.then(() => {
+					const newStyle = textStyleBlock.clone()
+
+					const previewTextNode = newStyle.findChild((n) => n.name === 'Preview')
+					previewTextNode.textStyleId = textStyle.id
+					previewTextNode.characters = textStyle.name
+
+					const propertiesGroup = newStyle.findChild((n) => n.name === 'Properties')
+					if (propertiesGroup) {
+						setTextStylePropertyValue(propertiesGroup, 'Font Family', textStyle.fontName.family)
+						setTextStylePropertyValue(propertiesGroup, 'Font Style', textStyle.fontName.style)
+						setTextStylePropertyValue(propertiesGroup, 'Font Size', textStyle.fontSize)
+						setTextStylePropertyValue(propertiesGroup, 'Letter Spacing', textStyle.letterSpacing.value + ' ' + textStyle.letterSpacing.unit, textStyle.letterSpacing.value === 0)
+						setTextStylePropertyValue(propertiesGroup, 'Line Height', textStyle.lineHeight.value + ' ' + textStyle.lineHeight.unit, typeof textStyle.lineHeight.value === 'undefined' || textStyle.lineHeight.value === 0)
+						setTextStylePropertyValue(propertiesGroup, 'Paragraph Indent', textStyle.paragraphIndent, textStyle.paragraphIndent === 0)
+						setTextStylePropertyValue(propertiesGroup, 'Paragraph Spacing', textStyle.paragraphSpacing, textStyle.paragraphSpacing === 0)
+						setTextStylePropertyValue(propertiesGroup, 'Text Case', textStyle.textCase, textStyle.textCase === 'ORIGINAL')
+						setTextStylePropertyValue(propertiesGroup, 'Text Decoration', textStyle.textDecoration, textStyle.textDecoration === 'NONE')
+					}
+
+					generatedTFrame.appendChild(newStyle)
+					resolve()
+				})
+				.catch((e) => reject(e))
+		}))
+	}
+
+	Promise.all(tsPromises)
+		.then(() => {
+			// console.log('All done!')
+			textStyleBlock.remove()
+			figma.viewport.scrollAndZoomIntoView([generatedTFrame])
+			figma.closePlugin()
+		})
+}
+
+
+let styleGuidePage = figma.root.findOne((n) => { return (n.type === 'PAGE' && n.name === 'Style Guide') })
+// console.log('--> styleGuidePage', styleGuidePage)
 
 if (!styleGuidePage) {
 	styleGuidePage = figma.createPage()
@@ -89,52 +191,17 @@ if (!styleGuidePage) {
 
 figma.currentPage = styleGuidePage // switch to the new page
 
-let tFrame = styleGuidePage.findChild((n) => { return (n.type === 'FRAME' && n.name === "Template - Text Styles") })
-console.log('--> tFrame', tFrame)
-// console.log('--> tFrame JSON', serialize(tFrame))
+let templateTextStylesFrame = styleGuidePage.findChild((n) => { return (n.type === 'FRAME' && n.name === 'Template - Text Styles') })
+// console.log('--> tFrame', tFrame)
+if (!templateTextStylesFrame) createTextStylesTemplateFrame()
 
-// if (!tFrame) {
-// 	const tFrame = figma.createFrame()
-// 	tFrame.name = 'Text Styles'
-// }
-
-// figma.viewport.scrollAndZoomIntoView([tFrame])
-
-// const textStyles = figma.getLocalTextStyles()
-
-// let textBlocksNextY = 40
-// textStyles.forEach(async (textStyle) => {
-// 	console.log('---------------------')
-// 	// console.log(textNode)
-// 	console.log('name', textStyle.name)
-// 	console.log('fontName.family', textStyle.fontName.family)
-// 	console.log('fontName.style', textStyle.fontName.style)
-// 	// console.log('fontSize', textStyle.fontSize)
-// 	// console.log('letterSpacing.unit', textStyle.letterSpacing.unit)
-// 	// console.log('letterSpacing.value', textStyle.letterSpacing.value)
-// 	// console.log('lineHeight.unit', textStyle.lineHeight.unit)
-// 	// console.log('lineHeight.value', textStyle.lineHeight.value)
-// 	// console.log('paragraphIndent', textStyle.paragraphIndent)
-// 	// console.log('paragraphSpacing', textStyle.paragraphSpacing)
-// 	// console.log('textCase', textStyle.textCase)
-// 	// console.log('textDecoration', textStyle.textDecoration)
-	
-// 	await figma.loadFontAsync({
-// 		family: textStyle.fontName.family,
-// 		style: textStyle.fontName.style
-// 	})
-
-// 	const newTextStylePreview = figma.createText()
-// 	tFrame.appendChild(newTextStylePreview)
-// 	newTextStylePreview.textStyleId = textStyle.id
-// 	newTextStylePreview.characters = textStyle.name
-// 	newTextStylePreview.x = 40
-// 	newTextStylePreview.y = textBlocksNextY
-
-// 	textBlocksNextY += newTextStylePreview.height + 100
-
-// 	tFrame.resize(800, textBlocksNextY)
-// })
+figma.loadFontAsync({ // load font for the labels we will be updating
+	family: 'Helvetica',
+	style: 'Regular'
+})
+	.then(() => {
+		generateTextStylesFrame(templateTextStylesFrame)
+	})
 
 // const paintStyles = figma.getLocalPaintStyles()
 
